@@ -22,25 +22,34 @@ func generate(rng: RandomNumberGenerator, diff: float) -> Dictionary:
 	# The opening flood must not hand the player most of the board.
 	var min_remaining := maxi(4, int(round(float(w * h - mine_count) * 0.22)))
 
-	var fallback: Dictionary = {}
-	for attempt in 90:
-		var board := _layout(rng, w, h, mine_count)
-		if board.is_empty():
-			continue
-		if fallback.is_empty():
-			fallback = board
-		if int(board["remaining"]) < min_remaining:
-			continue
-		fallback = board
-		if _solvable(w, h, board["mines"], board["opened"], mine_count):
+	# Every board handed out has to be provable without a single guess. If the
+	# requested density cannot deliver one, thin the field out and try again --
+	# and if even that fails, return nothing so the factory picks another pool.
+	# There is deliberately no "close enough" fallback here.
+	var chosen: Dictionary = {}
+	for relax in 4:
+		var mines_now := mine_count - relax
+		if mines_now < 3:
+			break
+		for attempt in 140:
+			var board := _layout(rng, w, h, mines_now)
+			if board.is_empty():
+				continue
+			if int(board["remaining"]) < min_remaining:
+				continue
+			if _solvable(w, h, board["mines"], board["opened"], mines_now):
+				chosen = board
+				mine_count = mines_now
+				break
+		if not chosen.is_empty():
 			break
 
-	if fallback.is_empty():
+	if chosen.is_empty():
 		return {}
 
-	var mines: PackedByteArray = fallback["mines"]
-	var opened: PackedByteArray = fallback["opened"]
-	var remaining: int = fallback["remaining"]
+	var mines: PackedByteArray = chosen["mines"]
+	var opened: PackedByteArray = chosen["opened"]
+	var remaining: int = chosen["remaining"]
 
 	var key := PackedStringArray()
 	for i in w * h:
@@ -48,7 +57,7 @@ func generate(rng: RandomNumberGenerator, diff: float) -> Dictionary:
 			key.append(str(i))
 	return {
 		"pool": POOL,
-		"hash": ("m:%dx%d|%s|%d" % [w, h, ",".join(key), int(fallback["start"])]).hash(),
+		"hash": ("m:%dx%d|%s|%d" % [w, h, ",".join(key), int(chosen["start"])]).hash(),
 		"time": 30.0 + 1.15 * float(remaining),
 		"title": "Minesweeper",
 		"hint": "Clear every safe cell  ·  %d mines" % mine_count,
@@ -57,7 +66,7 @@ func generate(rng: RandomNumberGenerator, diff: float) -> Dictionary:
 		"mine_count": mine_count,
 		"mines": mines,
 		"opened": opened,
-		"start": int(fallback["start"]),
+		"start": int(chosen["start"]),
 		"remaining": remaining,
 	}
 

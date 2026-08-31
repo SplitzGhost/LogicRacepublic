@@ -4,7 +4,7 @@ extends PuzzleView
 var _board: Board
 var _flag_mode := false
 var _flag_btn: IconButton
-var _counter: Label
+var _counter: TintLabel
 
 
 class Board:
@@ -176,10 +176,8 @@ func _tools() -> Control:
 	_flag_btn.pressed.connect(_toggle_flag_mode)
 	row.add_child(_flag_btn)
 
-	_counter = Label.new()
+	_counter = TintLabel.make("", 27, "text_dim")
 	_counter.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_counter.add_theme_font_size_override("font_size", 27)
-	_counter.add_theme_color_override("font_color", Palette.c("text_dim"))
 	row.add_child(_counter)
 	return row
 

@@ -68,6 +68,30 @@ static func glyph_points(shape: int, rot: int, center: Vector2, r: float) -> Pac
 	return pts
 
 
+## Draws one Pattern Snap element: glyph, rotation, fill, repeat count and the
+## accent flag, which is what the harder visual rules vary.
+static func draw_element(ci: CanvasItem, element: Dictionary, center: Vector2, r: float,
+		base: Color, accent: Color) -> void:
+	var color: Color = accent if bool(element.get("accent", false)) else base
+	var shape := int(element.get("shape", 0))
+	var rot := int(element.get("rot", 0))
+	var filled := bool(element.get("fill", true))
+	var count: int = clampi(int(element.get("count", 1)), 1, 3)
+
+	match count:
+		2:
+			var rr := r * 0.60
+			draw_glyph(ci, shape, rot, center + Vector2(-rr * 1.08, 0.0), rr, color, filled, rr * 0.26)
+			draw_glyph(ci, shape, rot, center + Vector2(rr * 1.08, 0.0), rr, color, filled, rr * 0.26)
+		3:
+			var rr := r * 0.50
+			draw_glyph(ci, shape, rot, center + Vector2(0.0, -rr * 1.05), rr, color, filled, rr * 0.26)
+			draw_glyph(ci, shape, rot, center + Vector2(-rr * 1.05, rr * 0.8), rr, color, filled, rr * 0.26)
+			draw_glyph(ci, shape, rot, center + Vector2(rr * 1.05, rr * 0.8), rr, color, filled, rr * 0.26)
+		_:
+			draw_glyph(ci, shape, rot, center, r, color, filled, r * 0.24)
+
+
 static func draw_glyph(ci: CanvasItem, shape: int, rot: int, center: Vector2, r: float,
 		color: Color, filled: bool, thickness := 7.0) -> void:
 	var pts := glyph_points(shape, rot, center, r)

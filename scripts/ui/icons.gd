@@ -80,6 +80,28 @@ static func draw(ci: CanvasItem, name: String, center: Vector2, r: float,
 				var y := -(13.0 * cos(t) - 5.0 * cos(2.0 * t) - 2.0 * cos(3.0 * t) - cos(4.0 * t))
 				pts2.append(center + Vector2(x, y) * (r / 17.0))
 			ci.draw_colored_polygon(pts2, color)
+		"trophy":
+			# Cup, handles, stem and foot.
+			ci.draw_colored_polygon(PackedVector2Array([
+				center + Vector2(-0.46, -0.72) * r, center + Vector2(0.46, -0.72) * r,
+				center + Vector2(0.40, -0.18) * r, center + Vector2(0.16, 0.10) * r,
+				center + Vector2(-0.16, 0.10) * r, center + Vector2(-0.40, -0.18) * r,
+			]), color)
+			ci.draw_arc(center + Vector2(-0.56, -0.50) * r, r * 0.26, -PI * 0.4, PI * 0.75,
+					16, color, w * 0.8, true)
+			ci.draw_arc(center + Vector2(0.56, -0.50) * r, r * 0.26, PI * 0.25, PI * 1.4,
+					16, color, w * 0.8, true)
+			ci.draw_line(center + Vector2(0.0, 0.06) * r, center + Vector2(0.0, 0.48) * r,
+					color, w * 1.6, true)
+			ci.draw_colored_polygon(PackedVector2Array([
+				center + Vector2(-0.42, 0.50) * r, center + Vector2(0.42, 0.50) * r,
+				center + Vector2(0.42, 0.74) * r, center + Vector2(-0.42, 0.74) * r,
+			]), color)
+		"wrench":
+			ci.draw_line(center + Vector2(-0.5, 0.5) * r, center + Vector2(0.28, -0.28) * r,
+					color, w * 1.7, true)
+			ci.draw_arc(center + Vector2(0.42, -0.42) * r, r * 0.34, PI * 0.35, PI * 1.9,
+					20, color, w * 1.5, true)
 		"play":
 			ci.draw_colored_polygon(PackedVector2Array([
 				center + Vector2(-r * 0.42, -r * 0.62),

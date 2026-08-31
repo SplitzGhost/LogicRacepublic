@@ -29,8 +29,11 @@ func _ready() -> void:
 	Palette.changed.connect(queue_redraw)
 
 
+## Sets the state without animating.
 func set_on_silent(value: bool) -> void:
 	on = value
+	if _tw2 != null and _tw2.is_valid():
+		_tw2.kill()
 	_t = 1.0 if value else 0.0
 	queue_redraw()
 
@@ -43,7 +46,8 @@ func activate() -> void:
 
 func _animate() -> void:
 	var target := 1.0 if on else 0.0
-	if bool(SaveData.get_setting("reduce_motion", false)):
+	# Switches are configured before they are parented; a tween needs the tree.
+	if not is_inside_tree() or bool(SaveData.get_setting("reduce_motion", false)):
 		_t = target
 		queue_redraw()
 		return

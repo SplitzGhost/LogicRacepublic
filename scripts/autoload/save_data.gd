@@ -7,14 +7,14 @@ extends Node
 
 const SAVE_PATH := "user://logicrace.save"
 ## How many puzzle fingerprints we remember per pool. Once the cap is hit the
-## oldest entries are dropped first (a player who burns through 3000 puzzles of
+## oldest entries are dropped first (a player who burns through 8000 puzzles of
 ## one pool is far past the point where a repeat is noticeable).
-const HISTORY_CAP := 3000
+const HISTORY_CAP := 8000
 
 signal settings_changed(key: String)
 signal progress_changed
 
-var mmr: int = 0
+var iq: int = 0
 var best_level: int = 1
 var rounds_played: int = 0
 var puzzles_solved: int = 0
@@ -28,8 +28,19 @@ var settings := {
 	"timer_bar": true,
 }
 
+## Developer switches. These never touch the player's real progress: turning dev
+## mode on takes a snapshot, turning it off puts the snapshot back.
+var dev := {
+	"enabled": false,
+	"start_level": 1,
+	"infinite_lives": false,
+	"freeze_timer": false,
+	"pool": "",
+}
+
 var _hist: Dictionary = {}      # pool -> Array[int], insertion ordered (FIFO)
 var _hist_set: Dictionary = {}  # pool -> Dictionary[int, bool] for O(1) lookup
+var _dev_backup: Dictionary = {}
 var _autosave_pending := false
 
 
@@ -61,8 +72,8 @@ func set_setting(key: String, value: Variant) -> void:
 
 
 # ---------------------------------------------------------------- progress ---
-func apply_round(new_mmr: int, level_reached: int, solved: int) -> void:
-	mmr = maxi(0, new_mmr)
+func apply_round(new_iq: int, level_reached: int, solved: int) -> void:
+	iq = maxi(0, new_iq)
 	best_level = maxi(best_level, level_reached)
 	rounds_played += 1
 	puzzles_solved += solved
@@ -72,15 +83,81 @@ func apply_round(new_mmr: int, level_reached: int, solved: int) -> void:
 
 
 func reset_progress() -> void:
-	mmr = 0
+	iq = 0
 	best_level = 1
 	rounds_played = 0
 	puzzles_solved = 0
 	_hist.clear()
 	_hist_set.clear()
+	_dev_backup = {}
 	_autosave_pending = true
 	progress_changed.emit()
 	save_game()
+
+
+# --------------------------------------------------------------- dev mode ---
+func dev_enabled() -> bool:
+	return bool(dev.get("enabled", false))
+
+
+func dev_get(key: String, fallback: Variant = null) -> Variant:
+	return dev.get(key, fallback)
+
+
+func dev_set(key: String, value: Variant) -> void:
+	if dev.get(key) == value:
+		return
+	dev[key] = value
+	_autosave_pending = true
+	settings_changed.emit("dev/" + key)
+	save_game()
+
+
+## Turning developer mode on parks the real progress; turning it off restores it,
+## so nothing done while testing can leak into the player's record.
+func set_dev_mode(on: bool) -> void:
+	if bool(dev["enabled"]) == on:
+		return
+	if on:
+		_dev_backup = _snapshot()
+	elif not _dev_backup.is_empty():
+		_restore(_dev_backup)
+		_dev_backup = {}
+	dev["enabled"] = on
+	_autosave_pending = true
+	settings_changed.emit("dev/enabled")
+	progress_changed.emit()
+	save_game()
+
+
+func _snapshot() -> Dictionary:
+	var hist_copy := {}
+	for pool: String in _hist:
+		hist_copy[pool] = (_hist[pool] as Array).duplicate()
+	return {
+		"iq": iq,
+		"best_level": best_level,
+		"rounds_played": rounds_played,
+		"puzzles_solved": puzzles_solved,
+		"history": hist_copy,
+	}
+
+
+func _restore(snap: Dictionary) -> void:
+	iq = int(snap.get("iq", 0))
+	best_level = int(snap.get("best_level", 1))
+	rounds_played = int(snap.get("rounds_played", 0))
+	puzzles_solved = int(snap.get("puzzles_solved", 0))
+	_hist.clear()
+	_hist_set.clear()
+	var hist: Dictionary = snap.get("history", {})
+	for pool: String in hist:
+		var arr: Array = (hist[pool] as Array).duplicate()
+		var set_d := {}
+		for v in arr:
+			set_d[int(v)] = true
+		_hist[pool] = arr
+		_hist_set[pool] = set_d
 
 
 # ----------------------------------------------------------------- history ---
@@ -117,12 +194,14 @@ func save_game() -> void:
 		hist_out[pool] = _hist[pool]
 	var payload := {
 		"version": 1,
-		"mmr": mmr,
+		"iq": iq,
 		"best_level": best_level,
 		"rounds_played": rounds_played,
 		"puzzles_solved": puzzles_solved,
 		"settings": settings,
 		"history": hist_out,
+		"dev": dev,
+		"dev_backup": _dev_backup,
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
@@ -146,7 +225,8 @@ func load_game() -> void:
 		push_warning("LogicRace: save file unreadable, starting fresh.")
 		return
 	var d: Dictionary = parsed
-	mmr = int(d.get("mmr", 0))
+	# "mmr" is the pre-1.1 key for the same value.
+	iq = int(d.get("iq", d.get("mmr", 0)))
 	best_level = maxi(1, int(d.get("best_level", 1)))
 	rounds_played = int(d.get("rounds_played", 0))
 	puzzles_solved = int(d.get("puzzles_solved", 0))
@@ -161,6 +241,12 @@ func load_game() -> void:
 				settings[key] = float(v)
 			else:
 				settings[key] = v
+
+	var dv: Dictionary = d.get("dev", {})
+	for key: String in dev.keys():
+		if dv.has(key):
+			dev[key] = dv[key]
+	_dev_backup = d.get("dev_backup", {})
 
 	_hist.clear()
 	_hist_set.clear()

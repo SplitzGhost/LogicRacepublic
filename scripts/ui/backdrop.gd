@@ -1,7 +1,7 @@
 class_name Backdrop
 extends ColorRect
-## Full-screen background: a soft vertical wash with two very faint accent
-## blooms, matching the light/dark palette.
+## Full-screen background: a deep indigo wash with two saturated blooms, so the
+## cards and buttons read as lit objects on a dark stage.
 
 const SHADER := preload("res://assets/shaders/backdrop.gdshader")
 
@@ -27,6 +27,7 @@ func _sync() -> void:
 		return
 	mat.set_shader_parameter("base", Palette.c("bg"))
 	mat.set_shader_parameter("base2", Palette.c("bg2"))
-	mat.set_shader_parameter("bloom", Palette.c("accent"))
-	mat.set_shader_parameter("bloom_strength", lerpf(0.20, 0.13, Palette.blend))
+	mat.set_shader_parameter("bloom", Palette.c("accent_hi"))
+	mat.set_shader_parameter("bloom2", Palette.c("accent"))
+	mat.set_shader_parameter("bloom_strength", lerpf(0.22, 0.40, Palette.blend))
 	mat.set_shader_parameter("aspect", size.x / maxf(size.y, 1.0))

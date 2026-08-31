@@ -1,10 +1,13 @@
 extends PuzzleView
-## Mini sudoku. Tap a cell, tap a digit. The grid checks itself the moment the
-## last blank is filled.
+## Mini sudoku. Tap a cell, tap a digit -- the cell flashes green or red at once,
+## so you always know where you stand. A digit greys out on the pad as soon as
+## all of its copies are on the board.
+##
+## A red flash is a wrong answer and costs a life, exactly like every other pool.
 
 var _board: Board
 var _keys: Array[PillButton] = []
-var _checking := false
+var _locked_input := false
 
 
 class Board:
@@ -19,8 +22,12 @@ class Board:
 	var given: PackedInt32Array
 	var values: PackedInt32Array
 	var selected := -1
-	var wrong: PackedByteArray
 	var locked := false
+
+	## Which cell is currently flashing, and how far the flash has faded.
+	var flash_cell := -1
+	var flash_key := "good"
+	var flash_t := 0.0
 
 	var _cell := 0.0
 	var _origin := Vector2.ZERO
@@ -65,33 +72,55 @@ class Board:
 				cell_tapped.emit(i)
 				return
 
+	func set_flash(index: int, key: String) -> void:
+		flash_cell = index
+		flash_key = key
+		flash_t = 1.0
+		queue_redraw()
+		var tw := create_tween()
+		tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.tween_method(_fade_flash, 1.0, 0.0, 0.75)
+
+	func _fade_flash(v: float) -> void:
+		flash_t = v
+		queue_redraw()
+
 	func _draw() -> void:
 		for i in n * n:
 			var rect := cell_rect(i)
 			var is_given := given[i] != 0
-			# Givens sit on white cards, blanks are recessed -- the contrast is
+			var filled := values[i] != 0
+			# Givens sit on raised cards, blanks are recessed -- the contrast is
 			# what makes the grid readable at a glance.
-			var fill: Color = Palette.c("card") if is_given else Palette.c("sunken")
+			var fill: Color = Palette.c("card") if filled else Palette.c("sunken")
 			if i == selected:
 				fill = Palette.c("accent_soft")
-			if not wrong.is_empty() and wrong[i] == 1:
-				fill = Palette.c("bad")
+			if i == flash_cell and flash_t > 0.0:
+				fill = fill.lerp(Palette.c(flash_key), flash_t)
 
 			var sb := Palette.flat_box(minf(Palette.R_TILE, _cell * 0.26), fill)
 			if i == selected:
 				sb.set_border_width_all(3)
-				sb.border_color = Palette.c("accent")
-			elif is_given:
+				sb.border_color = Palette.c("accent_hi")
+			elif filled:
+				sb.set_border_width_all(2)
+				sb.border_color = Palette.c("glass")
 				sb.shadow_color = Palette.c("shadow")
 				sb.shadow_size = 8
 				sb.shadow_offset = Vector2(0, 3)
+			else:
+				# Empty cells need an outline of their own, or the grid
+				# disappears into the background.
+				sb.set_border_width_all(2)
+				sb.border_color = Palette.c("line")
 			draw_style_box(sb, rect)
 
 			var v := values[i]
 			if v == 0:
 				continue
-			var col: Color = Palette.c("text") if is_given else Palette.c("accent")
-			if not wrong.is_empty() and wrong[i] == 1:
+			# The player's own answers stay tinted so progress is visible.
+			var col: Color = Palette.c("text") if is_given else Palette.c("accent_hi")
+			if i == flash_cell and flash_t > 0.4:
 				col = Color.WHITE
 			var font: Font = Palette.font_black if is_given else Palette.font_bold
 			UiDraw.text_center(self, font, int(_cell * 0.54), rect, str(v), col)
@@ -106,7 +135,6 @@ func build(column: VBoxContainer) -> void:
 	_board.box_h = int(data["box_h"])
 	_board.given = data["given"]
 	_board.values = (data["given"] as PackedInt32Array).duplicate()
-	_board.wrong = PackedByteArray()
 	_board.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_board.size_flags_stretch_ratio = 3.2
 	_board.cell_tapped.connect(_on_cell)
@@ -115,6 +143,7 @@ func build(column: VBoxContainer) -> void:
 	column.add_child(spacer(0.25))
 	column.add_child(_keypad())
 	column.add_child(spacer(0.1))
+	_refresh_keys()
 
 
 func _keypad() -> Control:
@@ -133,22 +162,27 @@ func _keypad() -> Control:
 		key.pressed.connect(_on_key.bind(d))
 		row.add_child(key)
 		_keys.append(key)
-
-	var erase := PillButton.new()
-	erase.icon = "erase"
-	erase.variant = PillButton.Variant.SECONDARY
-	erase.radius = 24.0
-	erase.custom_minimum_size = Vector2(0, 112)
-	erase.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	erase.pressed.connect(_on_key.bind(0))
-	row.add_child(erase)
 	return row
 
 
+## Greys out every digit that is already on the board `size` times.
+func _refresh_keys() -> void:
+	var n := _board.n
+	var counts := PackedInt32Array()
+	counts.resize(n + 1)
+	counts.fill(0)
+	for v in _board.values:
+		if v > 0:
+			counts[v] += 1
+	for d in range(1, n + 1):
+		_keys[d - 1].enabled = counts[d] < n
+
+
 func _on_cell(index: int) -> void:
-	if finished or _checking:
+	if finished or _locked_input:
 		return
-	if _board.given[index] != 0:
+	# Correct entries lock in, so only empty cells are selectable.
+	if _board.values[index] != 0:
 		Sfx.play("tick", 0.9, 0.5)
 		return
 	_board.selected = index if _board.selected != index else -1
@@ -156,58 +190,51 @@ func _on_cell(index: int) -> void:
 
 
 func _on_key(digit: int) -> void:
-	if finished or _checking or _board.selected < 0:
+	if finished or _locked_input or _board.selected < 0:
 		return
 	var idx := _board.selected
-	if _board.given[idx] != 0:
+	var solution: PackedInt32Array = data["solution"]
+
+	if digit != solution[idx]:
+		# Immediate, unambiguous: the cell goes red and the life is gone.
+		_locked_input = true
+		_board.values[idx] = digit
+		_board.selected = -1
+		_board.set_flash(idx, "bad")
+		Sfx.haptic(35)
+		await get_tree().create_timer(0.35).timeout
+		if not is_instance_valid(self):
+			return
+		_board.locked = true
+		fail()
 		return
+
 	_board.values[idx] = digit
+	_board.selected = -1
+	_board.set_flash(idx, "good")
+	Sfx.play("tick", 1.35, 0.6)
+	_refresh_keys()
+	_advance_selection(idx)
 	_board.queue_redraw()
-	if digit != 0:
-		_advance_selection()
-	_maybe_check()
+
+	for v in _board.values:
+		if v == 0:
+			return
+	_board.locked = true
+	await get_tree().create_timer(0.3).timeout
+	if is_instance_valid(self):
+		succeed()
 
 
 ## Jump to the next empty cell so the player keeps a rhythm.
-func _advance_selection() -> void:
+func _advance_selection(from_index: int) -> void:
 	var n := _board.n
 	for step in range(1, n * n + 1):
-		var i := (_board.selected + step) % (n * n)
+		var i := (from_index + step) % (n * n)
 		if _board.values[i] == 0:
 			_board.selected = i
 			return
 	_board.selected = -1
-
-
-func _maybe_check() -> void:
-	for v in _board.values:
-		if v == 0:
-			return
-	_checking = true
-	_board.selected = -1
-	_board.queue_redraw()
-	await get_tree().create_timer(0.18).timeout
-	if not is_instance_valid(self):
-		return
-
-	var solution: PackedInt32Array = data["solution"]
-	var wrong := PackedByteArray()
-	wrong.resize(_board.values.size())
-	wrong.fill(0)
-	var bad := 0
-	for i in _board.values.size():
-		if _board.values[i] != solution[i]:
-			wrong[i] = 1
-			bad += 1
-
-	if bad == 0:
-		_board.locked = true
-		succeed()
-		return
-	_board.wrong = wrong
-	_board.locked = true
-	_board.queue_redraw()
-	fail()
 
 
 func on_timeout() -> void:

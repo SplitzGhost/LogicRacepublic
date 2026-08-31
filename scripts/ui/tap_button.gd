@@ -40,11 +40,11 @@ func _gui_input(event: InputEvent) -> void:
 			return
 		if mb.pressed:
 			_down = true
-			_scale_to(press_scale, 0.09)
+			press_feedback(true)
 			accept_event()
 		elif _down:
 			_down = false
-			_scale_to(1.0, 0.20)
+			press_feedback(false)
 			if Rect2(Vector2.ZERO, size).has_point(mb.position):
 				activate()
 			accept_event()
@@ -52,7 +52,13 @@ func _gui_input(event: InputEvent) -> void:
 		var mm := event as InputEventMouseMotion
 		if not Rect2(Vector2.ZERO, size).has_point(mm.position):
 			_down = false
-			_scale_to(1.0, 0.20)
+			press_feedback(false)
+
+
+## What "pressed" looks like. The default is a gentle scale-down; PillButton
+## overrides it to push the face down onto its own shadow plate instead.
+func press_feedback(down: bool) -> void:
+	_scale_to(press_scale if down else 1.0, 0.09 if down else 0.20)
 
 
 func activate() -> void:

@@ -1,12 +1,12 @@
 class_name PillButton
 extends TapButton
-## Labelled button. PRIMARY carries the accent gradient and a soft drop shadow;
-## the rest are flat surfaces that follow the palette.
+## Arcade-style button: a coloured face sitting on a darker plate, so it reads as
+## a physical key. Pressing pushes the face down onto the plate.
 ##
-## The gradient lives in a child node, so the label and icon are painted by a
-## second child on top of it -- a parent's own `_draw` would end up underneath.
+## The face is a gradient child node and the label a second child on top of it --
+## a parent's own `_draw` would end up underneath both.
 
-enum Variant { PRIMARY, SECONDARY, GHOST, DANGER }
+enum Variant { PRIMARY, SECONDARY, GHOST, DANGER, SUCCESS, GOLD }
 
 var text := "":
 	set(value):
@@ -16,7 +16,7 @@ var variant: Variant = Variant.PRIMARY:
 	set(value):
 		variant = value
 		_sync()
-var radius := 34.0:
+var radius := 30.0:
 	set(value):
 		radius = value
 		_sync()
@@ -31,11 +31,13 @@ var icon := "":
 
 var _grad: GradRect
 var _face: Face
+var _depth := 0.0
+var _tw3: Tween
 
 
 class Face:
 	extends Control
-	## Draws the label and icon above the button background.
+	## Draws the label and icon above the button face.
 
 	var owner_button: PillButton
 
@@ -56,15 +58,21 @@ class Face:
 
 		var text_rect := rect
 		if icon_name != "":
-			var half := Palette.font_bold.get_string_size(
+			var half := Palette.font_black.get_string_size(
 					label, HORIZONTAL_ALIGNMENT_LEFT, -1, owner_button.font_size).x * 0.5
 			Icons.draw(self, icon_name, Vector2(rect.size.x * 0.5 - half - 34.0,
 					rect.size.y * 0.5), 20.0, col, 5.0)
 			text_rect.position.x += 24.0
 		if label != "":
-			var fs := UiDraw.fit_size(Palette.font_bold, label, text_rect.size.x - 48.0,
+			var fs := UiDraw.fit_size(Palette.font_black, label, text_rect.size.x - 44.0,
 					owner_button.font_size, 18)
-			UiDraw.text_center(self, Palette.font_bold, fs, text_rect, label, col)
+			UiDraw.text_center(self, Palette.font_black, fs, text_rect, label, col)
+
+
+func _init() -> void:
+	super()
+	# The face travels instead of the whole control.
+	press_scale = 1.0
 
 
 func _ready() -> void:
@@ -72,26 +80,73 @@ func _ready() -> void:
 	custom_minimum_size.y = maxf(custom_minimum_size.y, 96.0)
 
 	_grad = GradRect.new()
-	_grad.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_grad.gloss = 0.06
+	_grad.gloss = 0.10
 	add_child(_grad)
 
 	_face = Face.new()
 	_face.owner_button = self
-	_face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(_face)
 
+	resized.connect(_layout)
 	Palette.changed.connect(_sync)
 	_sync()
 
 
+## Face colours per variant: [top, bottom, plate].
+func _ramp() -> Array:
+	match variant:
+		Variant.PRIMARY:
+			return [Palette.c("accent_hi"), Palette.c("accent"), Palette.c("accent_deep")]
+		Variant.SUCCESS:
+			return [Palette.c("good_hi"), Palette.c("good"), Palette.c("good_deep")]
+		Variant.GOLD:
+			return [Palette.c("gold"), Palette.c("gold").lerp(Palette.c("gold_deep"), 0.5),
+					Palette.c("gold_deep")]
+		Variant.DANGER:
+			return [Palette.c("bad").lerp(Color.WHITE, 0.25), Palette.c("bad"),
+					Palette.c("bad").darkened(0.35)]
+		Variant.SECONDARY:
+			return [Palette.c("card_alt"), Palette.c("card"), Palette.c("sunken")]
+		_:
+			return [Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0, 0, 0, 0)]
+
+
+func text_color() -> Color:
+	match variant:
+		Variant.SECONDARY:
+			return Palette.c("text")
+		Variant.GHOST:
+			return Palette.c("text_dim")
+		Variant.GOLD:
+			return Palette.c("gold_deep").darkened(0.45)
+		_:
+			return Palette.c("on_accent")
+
+
 func _sync() -> void:
-	if _grad != null:
-		_grad.radius = radius
-		_grad.visible = variant == Variant.PRIMARY
-		if variant == Variant.PRIMARY:
-			_grad.set_colors(Palette.c("accent_hi"), Palette.c("accent"))
+	if _grad == null:
+		return
+	var ramp := _ramp()
+	_grad.visible = variant != Variant.GHOST
+	_grad.radius = radius
+	_grad.set_colors(ramp[0], ramp[1])
+	_layout()
 	_redraw_face()
+	queue_redraw()
+
+
+func _layout() -> void:
+	if _grad == null:
+		return
+	var bevel := 0.0 if variant == Variant.GHOST else Palette.BEVEL
+	var travel := bevel * 0.72 * _depth
+	var face_h: float = maxf(10.0, size.y - bevel)
+	_grad.position = Vector2(0.0, travel)
+	_grad.size = Vector2(size.x, face_h)
+	_grad.apply()
+	_face.position = _grad.position
+	_face.size = _grad.size
+	_face.queue_redraw()
 	queue_redraw()
 
 
@@ -100,38 +155,30 @@ func _redraw_face() -> void:
 		_face.queue_redraw()
 
 
-func fill_color() -> Color:
-	match variant:
-		Variant.PRIMARY:
-			return Palette.c("accent")
-		Variant.SECONDARY:
-			return Palette.c("card")
-		Variant.DANGER:
-			return Palette.c("bad")
-		_:
-			return Color(0, 0, 0, 0)
+## Pressing pushes the face down onto the plate instead of scaling the control.
+func press_feedback(down: bool) -> void:
+	var target := 1.0 if down else 0.0
+	if bool(SaveData.get_setting("reduce_motion", false)):
+		_set_depth(target)
+		return
+	if _tw3 != null and _tw3.is_valid():
+		_tw3.kill()
+	_tw3 = create_tween()
+	_tw3.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_tw3.tween_method(_set_depth, _depth, target, 0.08 if down else 0.16)
 
 
-func text_color() -> Color:
-	match variant:
-		Variant.PRIMARY, Variant.DANGER:
-			return Palette.c("on_accent")
-		Variant.GHOST:
-			return Palette.c("text_dim")
-		_:
-			return Palette.c("text")
+func _set_depth(v: float) -> void:
+	_depth = v
+	_layout()
 
 
 func _draw() -> void:
 	if variant == Variant.GHOST:
 		return
-	var sb := Palette.flat_box(radius, fill_color())
-	if variant == Variant.PRIMARY or variant == Variant.DANGER:
-		sb.shadow_color = fill_color() * Color(1, 1, 1, 0.34)
-		sb.shadow_size = 24
-		sb.shadow_offset = Vector2(0, 12)
-	else:
-		sb.shadow_color = Palette.c("shadow")
-		sb.shadow_size = 14
-		sb.shadow_offset = Vector2(0, 5)
-	draw_style_box(sb, Rect2(Vector2.ZERO, size))
+	# The plate: same silhouette, darker, one bevel taller than the face.
+	var plate := Palette.flat_box(radius, _ramp()[2])
+	plate.shadow_color = Palette.c("shadow")
+	plate.shadow_size = 20
+	plate.shadow_offset = Vector2(0, 10)
+	draw_style_box(plate, Rect2(Vector2.ZERO, size))

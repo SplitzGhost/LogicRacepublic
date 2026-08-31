@@ -11,6 +11,8 @@ const VIEWS := {
 	"target": preload("res://scripts/puzzles/target_view.gd"),
 	"mines": preload("res://scripts/puzzles/mines_view.gd"),
 	"math": preload("res://scripts/puzzles/math_view.gd"),
+	"chess": preload("res://scripts/puzzles/chess_view.gd"),
+	"water": preload("res://scripts/puzzles/water_view.gd"),
 }
 
 var level := 1
@@ -21,7 +23,7 @@ var time_limit := 1.0
 var time_ratios: Array[float] = []
 
 var _running := false
-var _level_label: Label
+var _level_label: TintLabel
 var _lives_dots: HudBits.LifeDots
 var _timer_line: HudBits.TimerLine
 var _slot: Control
@@ -31,7 +33,6 @@ var _low_time_warned := false
 var _ending := false
 var _quit_armed := false
 var _quit_btn: IconButton
-
 
 func _ready() -> void:
 	theme = Palette.theme
@@ -52,11 +53,13 @@ func _ready() -> void:
 	_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(_slot)
 
-	Palette.changed.connect(_sync_colors)
-	SaveData.settings_changed.connect(_on_setting)
-	_sync_colors()
-	_next_puzzle(false)
+	if SaveData.dev_enabled():
+		level = maxi(1, int(SaveData.dev_get("start_level", 1)))
+		col.add_child(_dev_bar())
 
+	SaveData.settings_changed.connect(_on_setting)
+
+	_next_puzzle(false)
 
 func _top_row() -> Control:
 	var row := HBoxContainer.new()
@@ -71,9 +74,7 @@ func _top_row() -> Control:
 	_quit_btn.pressed.connect(_on_quit)
 	row.add_child(_quit_btn)
 
-	_level_label = Label.new()
-	_level_label.add_theme_font_override("font", Palette.font_black)
-	_level_label.add_theme_font_size_override("font_size", 30)
+	_level_label = TintLabel.make("", 30, "text", Palette.font_black)
 	_level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(_level_label)
 
@@ -90,20 +91,14 @@ func _top_row() -> Control:
 	row.add_child(_lives_dots)
 	return row
 
-
-func _sync_colors() -> void:
-	if _level_label != null:
-		_level_label.add_theme_color_override("font_color", Palette.c("text"))
-
-
 # ----------------------------------------------------------------- puzzle ---
 func _next_puzzle(animate := true) -> void:
 	_disarm_quit()
-	var difficulty := Ranks.difficulty(level, SaveData.mmr)
+	var difficulty := Ranks.difficulty(level, SaveData.iq)
 	var d: Dictionary = _prefetch
 	_prefetch = {}
 	if d.is_empty():
-		d = PuzzleFactory.make(difficulty)
+		d = PuzzleFactory.make(difficulty, _forced_pool())
 	if d.is_empty():
 		push_error("LogicRace: puzzle generation failed")
 		_end_round()
@@ -135,7 +130,6 @@ func _next_puzzle(animate := true) -> void:
 
 	_queue_prefetch()
 
-
 ## Builds the next puzzle while the player is reading the current one, so the
 ## generators never stall a transition.
 func _queue_prefetch() -> void:
@@ -143,8 +137,7 @@ func _queue_prefetch() -> void:
 	if not is_instance_valid(self) or not _running:
 		return
 	if _prefetch.is_empty():
-		_prefetch = PuzzleFactory.make(Ranks.difficulty(level + 1, SaveData.mmr))
-
+		_prefetch = PuzzleFactory.make(Ranks.difficulty(level + 1, SaveData.iq), _forced_pool())
 
 func _clear_view(delay: float) -> void:
 	var old := _view
@@ -161,9 +154,10 @@ func _clear_view(delay: float) -> void:
 	tw.parallel().tween_property(old, "position:x", -44.0, 0.22)
 	tw.tween_callback(old.queue_free)
 
-
 func _process(delta: float) -> void:
 	if not _running:
+		return
+	if bool(SaveData.dev_get("freeze_timer", false)) and SaveData.dev_enabled():
 		return
 	time_left = maxf(0.0, time_left - delta)
 	_timer_line.ratio = time_left / time_limit
@@ -172,7 +166,6 @@ func _process(delta: float) -> void:
 		Sfx.play("tick", 1.0, 0.8)
 	if time_left <= 0.0:
 		_on_timeout()
-
 
 # --------------------------------------------------------------- outcomes ---
 func _on_solved() -> void:
@@ -186,13 +179,11 @@ func _on_solved() -> void:
 	Sfx.haptic(14)
 	_advance(0.55)
 
-
 func _on_failed() -> void:
 	if not _running:
 		return
 	_running = false
 	_lose_life(0.85)
-
 
 func _on_timeout() -> void:
 	if not _running:
@@ -202,8 +193,10 @@ func _on_timeout() -> void:
 		_view.on_timeout()
 	_lose_life(1.15)
 
-
 func _lose_life(delay: float) -> void:
+	if SaveData.dev_enabled() and bool(SaveData.dev_get("infinite_lives", false)):
+		_advance(delay)
+		return
 	lives -= 1
 	_lives_dots.set_lives(lives)
 	Sfx.play("wrong")
@@ -216,13 +209,11 @@ func _lose_life(delay: float) -> void:
 		return
 	_advance(delay)
 
-
 func _advance(delay: float) -> void:
 	_clear_view(delay)
 	await get_tree().create_timer(delay + 0.20).timeout
 	if is_instance_valid(self) and not _ending:
 		_next_puzzle()
-
 
 func _end_round() -> void:
 	if _ending:
@@ -237,16 +228,15 @@ func _end_round() -> void:
 	if not time_ratios.is_empty():
 		avg /= float(time_ratios.size())
 
-	var before := SaveData.mmr
+	var before := SaveData.iq
 	var result := Ranks.score_round(before, cleared, avg)
-	SaveData.apply_round(int(result["new_mmr"]), level, cleared)
+	SaveData.apply_round(int(result["new_iq"]), level, cleared)
 
 	result["level"] = level
 	result["cleared"] = cleared
 	result["avg_time_left"] = avg
-	result["mmr_before"] = before
+	result["iq_before"] = before
 	go_result(result)
-
 
 ## Leaving mid-round is not an escape hatch: the round is scored exactly as if
 ## the last life had been lost. Two taps, so it never happens by accident.
@@ -258,14 +248,13 @@ func _on_quit() -> void:
 		_quit_btn.tint = "bad"
 		_quit_btn.queue_redraw()
 		_level_label.text = "END ROUND?"
-		_level_label.add_theme_color_override("font_color", Palette.c("bad"))
+		_level_label.tint_key = "bad"
 		await get_tree().create_timer(2.5).timeout
 		if is_instance_valid(self) and _quit_armed:
 			_disarm_quit()
 		return
 	_running = false
 	_end_round()
-
 
 func _disarm_quit() -> void:
 	if not _quit_armed:
@@ -274,9 +263,50 @@ func _disarm_quit() -> void:
 	_quit_btn.tint = "text_dim"
 	_quit_btn.queue_redraw()
 	_level_label.text = "LEVEL %d" % level
-	_level_label.add_theme_color_override("font_color", Palette.c("text"))
-
+	_level_label.tint_key = "text"
 
 func _on_setting(key: String) -> void:
 	if key == "timer_bar" and _timer_line != null:
 		_timer_line.visible = bool(SaveData.get_setting("timer_bar", true))
+
+
+# ------------------------------------------------------------ developer ---
+func _forced_pool() -> String:
+	if not SaveData.dev_enabled():
+		return ""
+	return String(SaveData.dev_get("pool", ""))
+
+
+## A strip of testing shortcuts, only present while developer mode is on.
+func _dev_bar() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row.custom_minimum_size.y = 74
+
+	row.add_child(_dev_button("Solve", func() -> void:
+		if _running:
+			_on_solved()))
+	row.add_child(_dev_button("+5 Lv", func() -> void:
+		level += 5
+		_level_label.text = "LEVEL %d" % level))
+	row.add_child(_dev_button("+Life", func() -> void:
+		lives = mini(lives + 1, START_LIVES)
+		_lives_dots.total = maxi(_lives_dots.total, lives)
+		_lives_dots.set_lives(lives, false)))
+	row.add_child(_dev_button("Skip", func() -> void:
+		if _running:
+			_running = false
+			_advance(0.05)))
+	return row
+
+
+func _dev_button(label_text: String, action: Callable) -> PillButton:
+	var b := PillButton.new()
+	b.text = label_text
+	b.variant = PillButton.Variant.GOLD
+	b.font_size = 24
+	b.radius = 20.0
+	b.custom_minimum_size.y = 74
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.pressed.connect(action)
+	return b

@@ -34,20 +34,11 @@ func _header() -> Control:
 	box.add_theme_constant_override("separation", 6)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	var title := Label.new()
-	title.text = String(data.get("title", "")).to_upper()
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_override("font", Palette.font_bold)
-	title.add_theme_font_size_override("font_size", 23)
-	title.add_theme_color_override("font_color", Palette.c("accent"))
-	box.add_child(title)
+	box.add_child(TintLabel.centered(String(data.get("title", "")).to_upper(), 23,
+			"accent", Palette.font_bold))
 
-	var hint := Label.new()
-	hint.text = String(data.get("hint", ""))
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var hint := TintLabel.centered(String(data.get("hint", "")), 26, "text_dim")
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.add_theme_font_size_override("font_size", 26)
-	hint.add_theme_color_override("font_color", Palette.c("text_dim"))
 	box.add_child(hint)
 	return box
 

@@ -1,69 +1,69 @@
 extends Screen
-## Logo, rank progress, Play. Theme toggle sits top left, settings top right.
+## Logo, rank progress, best-level record, and the two buttons.
 
 var _logo: Logo
 var _rank: RankBar
-var _theme_btn: IconButton
-var _stats: Label
+var _best: BestCard
+
+
+class BestCard:
+	extends Card
+	## The personal record, given its own panel next to the rank.
+
+	var level := 1:
+		set(value):
+			level = value
+			queue_redraw()
+
+	func _init() -> void:
+		super()
+		fill_key = "card_alt"
+		custom_minimum_size.y = 116
+
+	func _draw() -> void:
+		super()
+		var pad := 32.0
+		var icon_r := size.y * 0.30
+		Icons.draw(self, "trophy", Vector2(pad + icon_r, size.y * 0.5), icon_r,
+				Palette.c("gold"), maxf(3.0, icon_r * 0.16))
+
+		var text_x := pad + icon_r * 2.0 + 22.0
+		draw_string(Palette.font_bold, Vector2(text_x, size.y * 0.5 - 8.0), "BEST LEVEL",
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 21, Palette.c("text_dim"))
+
+		var value := str(level)
+		var w := Palette.font_black.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, 46).x
+		draw_string(Palette.font_black, Vector2(size.x - pad - w, size.y * 0.5 + 18.0),
+				value, HORIZONTAL_ALIGNMENT_LEFT, -1, 46, Palette.c("gold"))
 
 
 func _ready() -> void:
 	theme = Palette.theme
 
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 26)
+	col.add_theme_constant_override("separation", 20)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	padded(44, 30, 44, 56).add_child(col)
+	padded(44, 34, 44, 56).add_child(col)
 
-	col.add_child(_top_row())
-	col.add_child(spacer(1.0))
+	col.add_child(spacer(0.22))
 
 	_logo = Logo.new()
 	col.add_child(_logo)
 
-	col.add_child(spacer(1.1))
+	col.add_child(spacer(0.40))
 	col.add_child(_rank_card())
 
-	var play := PillButton.new()
-	play.text = "Play"
-	play.font_size = 40
-	play.custom_minimum_size.y = 120
-	play.radius = 40.0
-	play.pressed.connect(go_game)
-	col.add_child(play)
+	_best = BestCard.new()
+	col.add_child(_best)
 
-	_stats = Label.new()
-	_stats.theme_type_variation = "Dim"
-	_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_stats.add_theme_font_size_override("font_size", 23)
-	col.add_child(_stats)
+	col.add_child(spacer(0.30))
+	col.add_child(_buttons())
+	col.add_child(spacer(0.75))
 
-	Palette.changed.connect(_sync)
 	SaveData.progress_changed.connect(_sync)
+	SaveData.settings_changed.connect(_on_setting)
 	_sync()
 	_logo.play_intro()
-
-
-func _top_row() -> Control:
-	var row := HBoxContainer.new()
-	row.custom_minimum_size.y = 84
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	_theme_btn = IconButton.new()
-	_theme_btn.icon = "moon"
-	_theme_btn.pressed.connect(_on_theme)
-	row.add_child(_theme_btn)
-
-	var gap := Control.new()
-	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(gap)
-
-	var settings := IconButton.new()
-	settings.icon = "sliders"
-	settings.pressed.connect(open_settings)
-	row.add_child(settings)
-	return row
 
 
 func _rank_card() -> Control:
@@ -74,12 +74,43 @@ func _rank_card() -> Control:
 	return card
 
 
+## Play and Settings sit together as one centred block, slightly inset from the
+## page margin so they read as a pair rather than as page-wide bars.
+func _buttons() -> Control:
+	var inset := MarginContainer.new()
+	inset.add_theme_constant_override("margin_left", 26)
+	inset.add_theme_constant_override("margin_right", 26)
+	inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 18)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inset.add_child(col)
+
+	var play := PillButton.new()
+	play.text = "PLAY"
+	play.font_size = 42
+	play.custom_minimum_size.y = 124
+	play.radius = 36.0
+	play.pressed.connect(go_game)
+	col.add_child(play)
+
+	var settings := PillButton.new()
+	settings.text = "Settings"
+	settings.variant = PillButton.Variant.SECONDARY
+	settings.font_size = 32
+	settings.custom_minimum_size.y = 100
+	settings.radius = 32.0
+	settings.pressed.connect(open_settings)
+	col.add_child(settings)
+	return inset
+
+
+func _on_setting(key: String) -> void:
+	if key.begins_with("dev/"):
+		_sync()
+
+
 func _sync() -> void:
-	_theme_btn.icon = "sun" if Palette.is_dark() else "moon"
-	_rank.set_mmr(SaveData.mmr, false)
-	_stats.text = "Best level %d   ·   %d puzzles solved" % [SaveData.best_level, SaveData.puzzles_solved]
-	_stats.add_theme_color_override("font_color", Palette.c("text_dim"))
-
-
-func _on_theme() -> void:
-	SaveData.set_setting("dark", not Palette.is_dark())
+	_rank.set_iq(SaveData.iq, false)
+	_best.level = SaveData.best_level

@@ -10,13 +10,8 @@ func build(column: VBoxContainer) -> void:
 	var card := Card.new()
 	card.custom_minimum_size.y = 236
 	var text := String(data["text"])
-	var label := Label.new()
-	label.text = text
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var label := TintLabel.centered(text, _size_for(text.length()), "text", Palette.font_black)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_override("font", Palette.font_black)
-	label.add_theme_font_size_override("font_size", _size_for(text.length()))
-	label.add_theme_color_override("font_color", Palette.c("text"))
 	card.content(28).add_child(label)
 	column.add_child(card)
 

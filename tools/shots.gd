@@ -42,14 +42,23 @@ func _run() -> void:
 	_main.call("open_settings")
 	await _settle(30)
 	await _shot("03_settings")
+
+	# Developer panel, then straight back off so nothing leaks into the save.
+	_save.call("set_dev_mode", true)
+	_main.call("close_settings")
+	await _settle(20)
+	_main.call("open_settings")
+	await _settle(30)
+	await _shot("03b_settings_dev")
+	_save.call("set_dev_mode", false)
 	_main.call("close_settings")
 	await _settle(24)
 
-	var pools: Array[String] = ["math", "pattern", "target", "sudoku", "mines"]
+	var pools: Array[String] = ["math", "pattern", "target", "sudoku", "mines", "chess", "water"]
 	var idx := 4
 	for pool in pools:
 		_fac.set("forced_pool", pool)
-		_save.set("mmr", 900)
+		_save.set("iq", 900)
 		await _fresh()
 		_main.call("go_game")
 		await _settle(40)
@@ -58,8 +67,8 @@ func _run() -> void:
 	_fac.set("forced_pool", "")
 
 	# A hard sudoku and a hard minesweeper, to check the dense layouts.
-	_save.set("mmr", 4200)
-	for pool in ["sudoku", "mines", "target", "pattern"]:
+	_save.set("iq", 4200)
+	for pool in ["sudoku", "mines", "target", "pattern", "chess", "water"]:
 		_fac.set("forced_pool", pool)
 		await _fresh()
 		_main.call("go_game")
@@ -83,8 +92,8 @@ func _run() -> void:
 	await _fresh()
 	_main.call("go_result", {
 		"level": 14, "cleared": 13, "delta": 168, "level_delta": 149,
-		"speed_delta": 19, "new_mmr": 1068, "mmr_before": 900,
-		"rank_before": "Silver", "rank_after": "Silver", "promoted": false,
+		"speed_delta": 19, "new_iq": 1068, "iq_before": 900,
+		"rank_before": "Silver 1", "rank_after": "Silver 2", "promoted": true,
 		"demoted": false, "avg_time_left": 0.52, "expected": 9.95,
 	})
 	await _settle(70)
@@ -131,7 +140,7 @@ func _shot(name: String) -> void:
 
 ## Keeps the harness from leaving test values in the real save file.
 func _cleanup() -> void:
-	_save.set("mmr", 0)
+	_save.set("iq", 0)
 	_save.set("best_level", 1)
 	_save.call("save_game")
 

@@ -46,14 +46,13 @@ class Strip:
 				continue
 			var element: Variant = reveal_answer if last else shown[i]
 			var col: Color = Palette.c("accent") if last else Palette.c("text")
-			if kind == "number":
+			if kind == "shape":
+				UiDraw.draw_element(self, element as Dictionary,
+						rect.position + rect.size * 0.5, w * 0.30, col, Palette.c("accent"))
+			else:
 				var text := str(element)
 				var fs := UiDraw.fit_size(Palette.font_bold, text, w - 12.0, int(h * 0.42), 13)
 				UiDraw.text_center(self, Palette.font_bold, fs, rect, text, col)
-			else:
-				var g: Dictionary = element
-				UiDraw.draw_glyph(self, int(g["shape"]), int(g["rot"]),
-						rect.position + rect.size * 0.5, w * 0.29, col, bool(g["fill"]), 6.0)
 
 
 func build(column: VBoxContainer) -> void:

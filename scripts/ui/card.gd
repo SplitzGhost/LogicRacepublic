@@ -1,12 +1,13 @@
 class_name Card
 extends Control
-## Plain rounded surface with a soft shadow. Children are laid out by the owner.
+## Rounded surface with a faint light edge and a deep shadow -- the panel style
+## the whole arcade layout is built from. Children are laid out by the owner.
 
 var radius := Palette.R_CARD
 var fill_key := "card"
 var shadow := true
-var shadow_size := 20
-var border_key := ""
+var shadow_size := 22
+var border_key := "glass"
 
 
 func _init() -> void:
@@ -37,5 +38,5 @@ func _draw() -> void:
 	if shadow:
 		sb.shadow_color = Palette.c("shadow")
 		sb.shadow_size = shadow_size
-		sb.shadow_offset = Vector2(0, 8)
+		sb.shadow_offset = Vector2(0, 10)
 	draw_style_box(sb, Rect2(Vector2.ZERO, size))

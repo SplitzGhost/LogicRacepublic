@@ -74,9 +74,9 @@ func _draw() -> void:
 	draw_style_box(sb, rect)
 
 	if mode == "glyph":
-		var r: float = minf(rect.size.x, rect.size.y) * 0.27
-		UiDraw.draw_glyph(self, int(glyph["shape"]), int(glyph["rot"]),
-				rect.size * 0.5, r, _fg(), bool(glyph["fill"]), 8.0)
+		var r: float = minf(rect.size.x, rect.size.y) * 0.28
+		var accent: Color = Color.WHITE if state != State.IDLE else Palette.c("accent")
+		UiDraw.draw_element(self, glyph, rect.size * 0.5, r, _fg(), accent)
 	else:
 		var fs := UiDraw.fit_size(Palette.font_bold, text, rect.size.x - 40.0, 52, 22)
 		UiDraw.text_center(self, Palette.font_bold, fs, rect, text, _fg())

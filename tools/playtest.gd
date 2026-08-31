@@ -4,9 +4,11 @@ extends SceneTree
 ##   godot --headless --path . --script res://tools/playtest.gd
 ##
 ## Verifies the game loop end to end: solving advances the level, a wrong answer
-## and a timeout each cost a life, two lost lives end the round, the MMR result
-## is written to disk, and every one of the five puzzle types can actually be
+## and a timeout each cost a life, two lost lives end the round, the IQ result
+## is written to disk, and every one of the seven puzzle types can actually be
 ## completed through its own input path.
+
+const WaterGen := preload("res://scripts/gen/water_gen.gd")
 
 var _main: Node
 var _pal: Node
@@ -34,11 +36,14 @@ func _run() -> void:
 	await _test_pool_solvable("pattern")
 	await _test_pool_solvable("sudoku")
 	await _test_pool_solvable("mines")
+	await _test_pool_solvable("water")
+	await _test_pool_solvable("chess")
 	await _test_target_wrong_answer()
 	await _test_wrong_answer_costs_life()
 	await _test_timeout_costs_life()
-	await _test_full_round_scores_mmr()
+	await _test_full_round_scores_iq()
 	await _test_quit_is_scored()
+	await _test_dev_mode_restores_progress()
 	_test_history_dedupe()
 
 	print("")
@@ -127,6 +132,34 @@ func _solve(view: Node) -> bool:
 				if mines[i] == 0 and opened[i] == 0:
 					view.call("_on_tap", i)
 			return true
+		"water":
+			var solver := WaterGen.new()
+			var moves: Array = solver.find_solution(_d(view)["tubes"])
+			if moves.is_empty():
+				return false
+			for m: Vector2i in moves:
+				if bool(view.get("finished")):
+					break
+				view.call("_on_tube", m.x)
+				view.call("_on_tube", m.y)
+			return true
+		"chess":
+			var w := int(_d(view)["w"])
+			var h := int(_d(view)["h"])
+			var engine: RefCounted = view.get("_engine")
+			# Follow the forced mate through, recomputing after every reply.
+			for step in 6:
+				# The view is freed as soon as the mate lands.
+				if not is_instance_valid(view) or bool(view.get("finished")):
+					break
+				var pieces: PackedInt32Array = view.get("_board").get("pieces")
+				var depth := int(view.get("_depth_left"))
+				var wins: PackedInt32Array = engine.call("winning_moves", pieces, w, h, depth)
+				if wins.is_empty():
+					break
+				view.call("_play", wins[0] & 0xff, (wins[0] >> 8) & 0xff)
+				await _wait(0.9)
+			return true
 		"target":
 			return false
 	return false
@@ -136,7 +169,7 @@ func _solve(view: Node) -> bool:
 func _test_pool_solvable(pool: String) -> void:
 	print("── %s: solving advances the level ──" % pool)
 	_fac.set("forced_pool", pool)
-	_save.set("mmr", 0)
+	_save.set("iq", 0)
 	await _restart()
 	_main.call("go_game")
 
@@ -157,7 +190,7 @@ func _test_pool_solvable(pool: String) -> void:
 func _test_target_wrong_answer() -> void:
 	print("── target: folding to the wrong value costs a life ──")
 	_fac.set("forced_pool", "target")
-	_save.set("mmr", 0)
+	_save.set("iq", 0)
 	await _restart()
 	_main.call("go_game")
 
@@ -183,7 +216,7 @@ func _test_target_wrong_answer() -> void:
 func _test_wrong_answer_costs_life() -> void:
 	print("── a wrong answer costs exactly one life ──")
 	_fac.set("forced_pool", "math")
-	_save.set("mmr", 0)
+	_save.set("iq", 0)
 	await _restart()
 	_main.call("go_game")
 
@@ -205,7 +238,7 @@ func _test_wrong_answer_costs_life() -> void:
 func _test_timeout_costs_life() -> void:
 	print("── running out of time costs a life ──")
 	_fac.set("forced_pool", "math")
-	_save.set("mmr", 0)
+	_save.set("iq", 0)
 	await _restart()
 	_main.call("go_game")
 
@@ -220,10 +253,10 @@ func _test_timeout_costs_life() -> void:
 	check(bool(view.get("finished")), "timeout did not lock the view")
 
 
-func _test_full_round_scores_mmr() -> void:
-	print("── a finished round scores and persists MMR ──")
+func _test_full_round_scores_iq() -> void:
+	print("── a finished round scores and persists IQ ──")
 	_fac.set("forced_pool", "math")
-	_save.set("mmr", 0)
+	_save.set("iq", 0)
 	await _restart()
 	_main.call("go_game")
 
@@ -247,8 +280,8 @@ func _test_full_round_scores_mmr() -> void:
 		await _wait(1.6)
 
 	await _wait(1.0)
-	var mmr := int(_save.get("mmr"))
-	check(mmr > 0, "eight cleared levels from 0 MMR should gain rating, got %d" % mmr)
+	var iq := int(_save.get("iq"))
+	check(iq > 0, "eight cleared levels from 0 IQ should gain rating, got %d" % iq)
 	check(int(_save.get("rounds_played")) > 0, "round was not recorded")
 	check(int(_save.get("best_level")) >= 9, "best level not updated (%d)" % int(_save.get("best_level")))
 
@@ -260,9 +293,9 @@ func _test_full_round_scores_mmr() -> void:
 	check(current != null and current.get("summary") != null, "result screen did not appear")
 
 	_save.call("save_game")
-	_save.set("mmr", -1)
+	_save.set("iq", -1)
 	_save.call("load_game")
-	check(int(_save.get("mmr")) == mmr, "MMR did not survive a save/load round trip")
+	check(int(_save.get("iq")) == iq, "IQ did not survive a save/load round trip")
 
 
 func _test_history_dedupe() -> void:
@@ -292,7 +325,7 @@ func _d(view: Node) -> Dictionary:
 func _test_quit_is_scored() -> void:
 	print("── quitting mid-round is armed and still scored ──")
 	_fac.set("forced_pool", "math")
-	_save.set("mmr", 3000)
+	_save.set("iq", 3000)
 	_save.call("save_game")
 	await _restart()
 	_main.call("go_game")
@@ -302,15 +335,47 @@ func _test_quit_is_scored() -> void:
 		check(false, "no puzzle appeared")
 		return
 	var game := _game()
-	var before := int(_save.get("mmr"))
+	var before := int(_save.get("iq"))
 
 	game.call("_on_quit")
 	await _wait(0.2)
 	check(_main.get("_current") == game, "a single tap already left the round")
-	check(int(_save.get("mmr")) == before, "a single tap already scored the round")
+	check(int(_save.get("iq")) == before, "a single tap already scored the round")
 
 	game.call("_on_quit")
 	await _wait(0.6)
 	check(_main.get("_current") != game, "confirming did not end the round")
-	check(int(_save.get("mmr")) < before,
-			"quitting with zero cleared levels at 3000 MMR should cost rating")
+	check(int(_save.get("iq")) < before,
+			"quitting with zero cleared levels at 3000 IQ should cost rating")
+
+
+func _test_dev_mode_restores_progress() -> void:
+	print("── developer mode leaves no trace ──")
+	_fac.set("forced_pool", "")
+	_save.set("iq", 2100)
+	_save.set("best_level", 12)
+	_save.call("save_game")
+	var iq_before := int(_save.get("iq"))
+	var best_before := int(_save.get("best_level"))
+
+	_save.call("set_dev_mode", true)
+	check(bool(_save.call("dev_enabled")), "developer mode did not switch on")
+
+	# Meddle the way the dev panel would.
+	_save.set("iq", 8800)
+	_save.set("best_level", 99)
+	_save.call("dev_set", "start_level", 40)
+	_save.call("save_game")
+	check(int(_save.get("iq")) == 8800, "dev IQ change did not apply")
+
+	_save.call("set_dev_mode", false)
+	check(int(_save.get("iq")) == iq_before,
+			"IQ was not restored (%d, expected %d)" % [int(_save.get("iq")), iq_before])
+	check(int(_save.get("best_level")) == best_before, "best level was not restored")
+	check(not bool(_save.call("dev_enabled")), "developer mode did not switch off")
+
+	# And the restore has to survive a reload, not just live in memory.
+	_save.call("save_game")
+	_save.set("iq", -1)
+	_save.call("load_game")
+	check(int(_save.get("iq")) == iq_before, "restored IQ did not survive a reload")

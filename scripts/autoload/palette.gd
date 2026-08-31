@@ -6,47 +6,72 @@ extends Node
 
 signal changed
 
-const LIGHT := {
-	"bg": Color("#eaeef5"),
-	"bg2": Color("#dfe5ef"),
-	"card": Color("#ffffff"),
-	"card_alt": Color("#f2f5fa"),
-	"sunken": Color("#e8ecf3"),
-	"text": Color("#101722"),
-	"text_dim": Color("#7d8798"),
-	"accent": Color("#1a95ef"),
-	"accent_hi": Color("#69c6ff"),
-	"accent_soft": Color("#dcefff"),
+## Arcade violet. Deep indigo ground, saturated violet-to-fuchsia gradients on
+## anything you can press, mint green for success, gold for rewards -- the
+## vocabulary of a casual mobile game rather than a system settings panel.
+const DARK := {
+	"bg": Color("#150e35"),
+	"bg2": Color("#241553"),
+	"card": Color("#2d1f63"),
+	"card_alt": Color("#3a2a7c"),
+	"sunken": Color("#1c1246"),
+	"text": Color("#ffffff"),
+	"text_dim": Color("#a99ada"),
+	"accent": Color("#8b2ce0"),
+	"accent_hi": Color("#e05cf5"),
+	"accent_soft": Color("#3d2a80"),
+	"accent_deep": Color("#5a1a9c"),
 	"on_accent": Color("#ffffff"),
-	"line": Color("#dde3ec"),
-	"good": Color("#22b573"),
-	"bad": Color("#f2415a"),
-	"warn": Color("#f5a524"),
-	"shadow": Color(0.24, 0.33, 0.47, 0.16),
+	"line": Color("#4a3691"),
+	"good": Color("#2bd97b"),
+	"good_hi": Color("#7ef2ae"),
+	"good_deep": Color("#12924b"),
+	"bad": Color("#ff4d6d"),
+	"warn": Color("#ffc233"),
+	"gold": Color("#ffcf3d"),
+	"gold_deep": Color("#e08c17"),
+	"glass": Color(1.0, 1.0, 1.0, 0.14),
+	"shadow": Color(0.03, 0.0, 0.12, 0.65),
 }
 
-const DARK := {
-	"bg": Color("#0a0d12"),
-	"bg2": Color("#0e131a"),
-	"card": Color("#151b24"),
-	"card_alt": Color("#1c232e"),
-	"sunken": Color("#10151d"),
-	"text": Color("#f1f5fa"),
-	"text_dim": Color("#79839a"),
-	"accent": Color("#2ba6ff"),
-	"accent_hi": Color("#68d1ff"),
-	"accent_soft": Color("#12304a"),
+const LIGHT := {
+	"bg": Color("#f0ebff"),
+	"bg2": Color("#ded4fb"),
+	"card": Color("#ffffff"),
+	"card_alt": Color("#f4efff"),
+	"sunken": Color("#e7dffa"),
+	"text": Color("#2a1466"),
+	"text_dim": Color("#7d6cb5"),
+	"accent": Color("#8b2ce0"),
+	"accent_hi": Color("#e05cf5"),
+	"accent_soft": Color("#ede2ff"),
+	"accent_deep": Color("#5a1a9c"),
 	"on_accent": Color("#ffffff"),
-	"line": Color("#232b37"),
-	"good": Color("#2fd08a"),
-	"bad": Color("#ff5c6e"),
-	"warn": Color("#ffb43d"),
-	"shadow": Color(0.0, 0.0, 0.0, 0.55),
+	"line": Color("#ddd2f5"),
+	"good": Color("#1fbf6a"),
+	"good_hi": Color("#5fe39c"),
+	"good_deep": Color("#0f8a4b"),
+	"bad": Color("#f0355c"),
+	"warn": Color("#f0a81f"),
+	"gold": Color("#f5b615"),
+	"gold_deep": Color("#c97a0c"),
+	"glass": Color(0.16, 0.06, 0.34, 0.10),
+	"shadow": Color(0.30, 0.18, 0.55, 0.20),
 }
+
+## The vivid board/tube palette used by the puzzles that need many distinct
+## colours. Same hues in both themes so a puzzle never changes meaning.
+const CHIPS: Array[Color] = [
+	Color("#ff4d6d"), Color("#ff9f1c"), Color("#ffd60a"), Color("#2bd97b"),
+	Color("#21c7d4"), Color("#3d8bff"), Color("#a05cff"), Color("#ff5cc8"),
+	Color("#8bd345"), Color("#ff7a45"),
+]
 
 const R_CARD := 34.0
 const R_TILE := 22.0
 const R_PILL := 999.0
+## How far a pressable surface sits above its own shadow plate.
+const BEVEL := 9.0
 
 var blend := 0.0  ## 0 = light, 1 = dark
 var theme: Theme
@@ -61,7 +86,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_fonts()
 	blend = 1.0 if bool(SaveData.get_setting("dark", false)) else 0.0
-	_rebuild_theme()
+	_build_theme()
 	SaveData.settings_changed.connect(_on_setting)
 
 
@@ -89,16 +114,20 @@ func set_dark(dark: bool, animate := true) -> void:
 		_tween.kill()
 	if not animate or bool(SaveData.get_setting("reduce_motion", false)):
 		blend = target
-		_rebuild_theme()
+		changed.emit()
 		return
 	_tween = create_tween()
 	_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_tween.tween_method(_set_blend, blend, target, 0.42)
 
 
+## Only the `changed` signal fires while blending. Everything that paints reads
+## `c()` at draw time, so the Theme resource itself never has to be touched --
+## rebuilding it per frame would re-propagate a theme change through the whole
+## tree sixty times a second.
 func _set_blend(v: float) -> void:
 	blend = v
-	_rebuild_theme()
+	changed.emit()
 
 
 # -------------------------------------------------------------------- type ---
@@ -135,6 +164,18 @@ func card_box(radius := R_CARD, fill_key := "card", shadow := true) -> StyleBoxF
 	return sb
 
 
+## Panel with the faint light edge that separates a card from the deep
+## background in the arcade look.
+func panel_box(radius := R_CARD, fill_key := "card") -> StyleBoxFlat:
+	var sb := flat_box(radius, c(fill_key))
+	sb.set_border_width_all(2)
+	sb.border_color = c("glass")
+	sb.shadow_color = c("shadow")
+	sb.shadow_size = 22
+	sb.shadow_offset = Vector2(0, 10)
+	return sb
+
+
 func flat_box(radius: float, fill: Color, border := 0.0, border_col := Color.TRANSPARENT) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = fill
@@ -147,42 +188,15 @@ func flat_box(radius: float, fill: Color, border := 0.0, border_col := Color.TRA
 
 
 # ------------------------------------------------------------------- theme ---
-func _rebuild_theme() -> void:
-	if theme == null:
-		theme = Theme.new()
+## Built once. It carries type only -- no colours, so it never has to change.
+## Colour comes from `c()` for painted controls and from TintLabel for text.
+func _build_theme() -> void:
+	theme = Theme.new()
 	theme.default_font = font_medium
 	theme.default_font_size = 30
 
-	theme.set_color("font_color", "Label", c("text"))
 	theme.set_font("font", "Label", font_medium)
 	theme.set_font_size("font_size", "Label", 30)
 
-	theme.set_type_variation("Dim", "Label")
-	theme.set_color("font_color", "Dim", c("text_dim"))
-	theme.set_font_size("font_size", "Dim", 25)
-
-	theme.set_type_variation("Caps", "Label")
-	theme.set_color("font_color", "Caps", c("text_dim"))
-	theme.set_font("font", "Caps", font_bold)
-	theme.set_font_size("font_size", "Caps", 21)
-
-	theme.set_type_variation("Title", "Label")
-	theme.set_color("font_color", "Title", c("text"))
-	theme.set_font("font", "Title", font_black)
-	theme.set_font_size("font_size", "Title", 54)
-
-	theme.set_type_variation("Huge", "Label")
-	theme.set_color("font_color", "Huge", c("text"))
-	theme.set_font("font", "Huge", font_black)
-	theme.set_font_size("font_size", "Huge", 86)
-
-	theme.set_type_variation("Strong", "Label")
-	theme.set_color("font_color", "Strong", c("text"))
-	theme.set_font("font", "Strong", font_bold)
-	theme.set_font_size("font_size", "Strong", 34)
-
 	# ScrollContainer chrome should stay invisible; the app is touch-first.
-	var empty := StyleBoxEmpty.new()
-	theme.set_stylebox("panel", "ScrollContainer", empty)
-
-	changed.emit()
+	theme.set_stylebox("panel", "ScrollContainer", StyleBoxEmpty.new())
